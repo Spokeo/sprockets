@@ -8,14 +8,18 @@ module Sprockets
         @charset       = asset.charset
       end
 
+      def self.pigz_location
+        @pigz_location ||= which('pigz')
+      end
+
       # What non-text mime types should we compress? This list comes from:
       # https://www.fastly.com/blog/new-gzip-settings-and-deciding-what-compress
       COMPRESSABLE_MIME_TYPES = {
-        "application/vnd.ms-fontobject" => true,
-        "application/x-font-opentype" => true,
-        "application/x-font-ttf" => true,
-        "image/x-icon" => true,
-        "image/svg+xml" => true
+          "application/vnd.ms-fontobject" => true,
+          "application/x-font-opentype" => true,
+          "application/x-font-ttf" => true,
+          "image/x-icon" => true,
+          "image/svg+xml" => true
       }
 
       # Private: Returns whether or not an asset can be compressed.
@@ -42,6 +46,18 @@ module Sprockets
         !can_compress?(mime_types)
       end
 
+
+      def self.which(cmd)
+        exts = ENV['PATHEXT'] ? ENV['PATHEXT'].split(';') : ['']
+        ENV['PATH'].split(File::PATH_SEPARATOR).each do |path|
+          exts.each { |ext|
+            exe = File.join(path, "#{cmd}#{ext}")
+            return exe if File.executable?(exe) && !File.directory?(exe)
+          }
+        end
+
+        return nil
+      end
       # Private: Generates a gzipped file based off of reference asset.
       #
       # Compresses the target asset's contents and puts it into a file with
@@ -50,15 +66,22 @@ module Sprockets
       #
       # Returns nothing.
       def compress(target)
-        mtime = PathUtils.stat(target).mtime
-        PathUtils.atomic_write("#{target}.gz") do |f|
-          gz = Zlib::GzipWriter.new(f, Zlib::BEST_COMPRESSION)
-          gz.mtime = mtime
-          gz.write(@source)
-          gz.close
+        if !Sprockets::Utils::Gzip.pigz_location.blank? && ENV['RUN_PIGZ'] == 'true'
+          `#{Sprockets::Utils::Gzip.pigz_location} -b 1024 -f -k -- #{target}`
+        else
 
-          File.utime(mtime, mtime, f.path)
+          mtime = PathUtils.stat(target).mtime
+          PathUtils.atomic_write("#{target}.gz") do |f|
+
+            gz = Zlib::GzipWriter.new(f, Zlib::BEST_COMPRESSION)
+            gz.mtime = mtime
+            gz.write(@source)
+            gz.close
+
+            File.utime(mtime, mtime, f.path)
+          end
         end
+
 
         nil
       end
